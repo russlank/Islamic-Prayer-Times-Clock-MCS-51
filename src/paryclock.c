@@ -71,23 +71,13 @@ typedef struct tagDATE {
     BYTE Day;
 	} DATE;
 
-/*
-typedef struct tagTIMES{
-    TIME T1;
-	TIME T2;
-    TIME T3;
-    TIME T4;
-    TIME T5;
-    TIME T6;
-    } TIMES;
-*/
-
 sbit Digit1        = P3^4;
 sbit Digit2        = P3^1;
 sbit Digit3        = P3^2;
 sbit Digit4        = P3^3;
 sbit Flags         = P3^5;
 sbit Keys          = P3^0;
+sbit Spkr          = P2^5;
 
 BYTE Video[5];
 BOOL Flasher            = FALSE;
@@ -101,6 +91,7 @@ BYTE CurrentSecond      = 0;
 WORD CurrentSecondParts = 0;
 WORD CurrentYear        = 0;
 BYTE DelayCounter       = 0;
+BYTE SpkrCounter        = 0;
 
 FLOAT HorizontalPos     = 35.13;
 FLOAT VerticalPos       = 36.75;
@@ -113,11 +104,14 @@ code BYTE TimeFlags[6] = { tfTIME1, tfTIME2, tfTIME3, tfTIME4, tfTIME5, tfTIME6}
 
 TIMER0
 {
+    if (SpkrCounter & 0x01) Spkr = ~Spkr;
+    else Spkr = 1;
     CurrentSecondParts += 12;
 	if ( CurrentSecondParts >= 32000){
 	   Flasher = FALSE;
 	   CurrentSecondParts -= 32000;
 	   CurrentSecond++;
+       if (SpkrCounter > 0) SpkrCounter--;
        if (DelayCounter > 0) DelayCounter--;
 	   if (CurrentSecond >= 60){
 	      CurrentSecond = 0;
@@ -141,7 +135,10 @@ TIMER0
 	      }
 	   else TimeChanged |= SECONDCHANGED;
 	   }
-	else if (CurrentSecondParts > 8000) Flasher = TRUE;
+	else {
+        if (CurrentSecondParts > 8000) Flasher = TRUE;
+        };
+
 }
 
 TIMER1
@@ -168,7 +165,7 @@ TIMER1
 		 VideoScanState = 1;
 		 break;
 	case 1:
-         Digit1 = 1;
+	     Digit1 = 1;
          if ((Flasher) || (( VideoStatus & 0x02) == 0x00)) VIDEOOUT = Video[1];
          else VIDEOOUT = DECODE[10];
 		 Digit2 = 0;
@@ -189,9 +186,9 @@ TIMER1
 		 VideoScanState = 4;
 		 break;
     case 4:
-         Digit4 = 1;
+   	     Digit4 = 1;
          if ((Flasher) || (( VideoStatus & 0x10) == 0x00)) VIDEOOUT = Video[4];
-         else VIDEOOUT = Video[4] | tfTIMES;
+         else VIDEOOUT = 0xff;// Video[4] | tfTIMES;
 		 Flags = 0;
 		 VideoScanState = 5;
          break;
@@ -472,14 +469,14 @@ BOOL EditTime( TIME *Time)
             }
         }
 }
-
-BOOL EditWord( WORD *Value, BOOL VisibleDot)
+/*
+BOOL EditInt( INT *Value, BOOL VisibleDot)
 {
     BYTE Digits[4];
     BYTE DigitNo = 3;
 
     {
-        WORD WV = *Value;
+        INT WV = *Value;
         register BYTE I;
         for (I = 0; I < 4; I++){
             Digits[I] = WV % 10;
@@ -506,7 +503,77 @@ BOOL EditWord( WORD *Value, BOOL VisibleDot)
                  DigitNo = ((DigitNo - 1) & 0x03);
                  break;
             case keyKEY5:
-                 *Value = (WORD)Digits[0] + (WORD)(Digits[1]) * 10 + (WORD)(Digits[2]) * 100 + ((WORD)(Digits[3])) * 1000;
+                 *Value = (INT)Digits[0] + (INT)(Digits[1]) * 10 + (INT)(Digits[2]) * 100 + ((INT)(Digits[3])) * 1000;
+                 return TRUE;
+            case keyKEY6:
+                 return FALSE;
+            }
+        }
+}
+*/
+
+BOOL EditInt( INT *Value, BOOL VisibleDot)
+{
+    BYTE Digits[4];
+    BYTE DigitNo = 3;
+    INT TempValue = *Value;
+    BOOL Signal;
+
+    if (VisibleDot) {
+        if (TempValue < 0) {
+            TempValue = - TempValue;
+            Signal = TRUE;
+            }
+        else Signal = FALSE;
+        DigitNo = 4;
+        }
+    else {
+        DigitNo = 3;
+        Signal = FALSE;
+        }
+
+    {
+        register BYTE I;
+        for (I = 0; I < 4; I++){
+            Digits[I] = TempValue % 10;
+            TempValue = TempValue / 10;
+            }
+        }
+
+    while ( TRUE){
+        {
+            register BYTE I;
+            for (I = 0; I <4; I++) Video[I] = DECODE[Digits[I]];
+            Video[4] = 0xff;
+            if (VisibleDot){
+                VideoStatus = 0x40;
+                if (Signal) Video[4] ^= 0x08;
+                else Video[4] ^= 0x10;
+                }
+            else VideoStatus = 0x00;
+            }
+
+        VideoStatus = ((VideoStatus & 0xc0) | ((0x01 << DigitNo) & 0x1f));
+
+        switch ( ReadKey()){
+            case keyKEY1:
+                 if (DigitNo < 4){
+                     if (Digits[DigitNo] < 9) Digits[DigitNo]++;
+                     else Digits[DigitNo] = 0;
+                     }
+                 else Signal = ~Signal;
+                 break;
+            case keyKEY2:
+                 if (DigitNo > 0) DigitNo --;
+                 else {
+                     if (VisibleDot) DigitNo = 4;
+                     else DigitNo = 3;
+                     };
+                 break;
+            case keyKEY5:
+                 TempValue = (INT)Digits[0] + (INT)(Digits[1]) * 10 + (INT)(Digits[2]) * 100 + ((INT)(Digits[3])) * 1000;
+                 if (Signal) TempValue = - TempValue;
+                 *Value = TempValue;
                  return TRUE;
             case keyKEY6:
                  return FALSE;
@@ -566,8 +633,8 @@ main()
                   break;
             case keyKEY3:
                  {
-                     WORD Year = CurrentYear;
-                     if (EditWord( &Year, FALSE)) {
+                     INT Year = CurrentYear;
+                     if (EditInt( &Year, FALSE)) {
 		                 DATE Date;
                          ConvertDayNoToDate( CurrentDay, &Date);
                          if (EditDate( &Date)) {
@@ -587,10 +654,10 @@ main()
                  break;
             case keyKEY4:
                  {
-                     WORD HPos = HorizontalPos * 100;
-                     if (EditWord( &HPos, TRUE)){
-                         WORD VPos = VerticalPos * 100;
-                         if (EditWord( &VPos, TRUE)){
+                     INT HPos = HorizontalPos * 100;
+                     if (EditInt( &HPos, TRUE)){
+                         INT VPos = VerticalPos * 100;
+                         if (EditInt( &VPos, TRUE)){
                              HorizontalPos = ((FLOAT)(HPos)) / 100.0;
                              VerticalPos = ((FLOAT)(VPos)) / 100.0;
                              }
@@ -607,6 +674,9 @@ main()
                      VideoStatus = 0x40;
                      WaitKey(10);
                      }
+                 break;
+            case keyKEY6:
+                 SpkrCounter = 10;
                  break;
             };
         };
