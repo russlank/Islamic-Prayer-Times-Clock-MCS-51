@@ -336,13 +336,14 @@ VOID DisplayTime( TIME *ATime)
 	else Video[3] = DECODE[ ATime.Hour / 10];
     Video[4] = 0xff;
 }
-BYTE GetTimeFlagAndNextTime( TIME *ATime, TIME *ANextTime)
+BYTE GetTimeFlagAndNextTime( TIME *ATime, TIME *ANextTime, BOOL SoundTime)
 {
     register SINT I;
     register SINT II;
     BOOL Found = FALSE;
     for(I = 5; I >= 0; I--)
         if ( ((ATime->Hour > Times[I].Hour) || ((ATime->Hour == Times[I].Hour) && (ATime->Minute >= Times[I].Minute)))){
+            if (SoundTime) if ((ATime->Hour == Times[I].Hour) && (ATime->Minute == Times[I].Minute)) SpkrCounter = 60;
             Found = TRUE;
             break;
             }
@@ -352,11 +353,12 @@ BYTE GetTimeFlagAndNextTime( TIME *ATime, TIME *ANextTime)
     return TimeFlags[II];
 }
 
-VOID DisplayActiveTime( TIME *ATime)
+BOOL DisplayActiveTime( TIME *ATime, BOOL SoundTime)
 {
     TIME NextTime;
     BYTE TimeFlag;
-    TimeFlag = GetTimeFlagAndNextTime( ATime, &NextTime);
+    // BYTE TimeStart;
+    TimeFlag = GetTimeFlagAndNextTime( ATime, &NextTime, SoundTime);
     DisplayTime( ATime);
     Video[4] ^= TimeFlag;
     if ( NextTime.Minute >= 15) NextTime.Minute -= 15;
@@ -608,7 +610,7 @@ main()
                  }
               if (( TimeChanged & MINUTCHANGED) != 0x00){
 		         TimeChanged &= ~MINUTCHANGED;
-                 DisplayActiveTime( &CurrentTime);
+                 DisplayActiveTime( &CurrentTime, TRUE);
  			     }
               }
            } while (KeyPressed == keyNOKEY);
@@ -669,8 +671,9 @@ main()
                  TimeChanged |= MINUTCHANGED;
                  {
                      TIME NextTime;
-                     GetTimeFlagAndNextTime( &CurrentTime, &NextTime);
-                     DisplayActiveTime( &NextTime);
+                     GetTimeFlagAndNextTime( &CurrentTime, &NextTime, FALSE);
+                     if (NextTime.Hour >= 24) NextTime.Hour -= 24;
+                     DisplayActiveTime( &NextTime, FALSE);
                      VideoStatus = 0x40;
                      WaitKey(10);
                      }
